@@ -1,4 +1,4 @@
-const { USE_PROXIES } = require('./config')
+const { USE_PROXIES, formUrl } = require('./config')
 
 const { ProxyAgent, fetch } = require('undici')
 
@@ -190,7 +190,7 @@ let SPAMMER_TARGET_COUNT = 0
 
 async function startAllSpammers () {
     console.log('Getting form info...')
-    const { responseParts, pageHistory, formId } = await getFormInfo('https://forms.gle/XBgqbuXGPDNVaKtr9') // https://forms.gle/MAtjXaRtCQmeEv2Q9
+    const { responseParts, pageHistory, formId } = await getFormInfo(formUrl)
     formInfo.responseParts = responseParts
     formInfo.pageHistory = pageHistory
     formInfo.formId = formId
