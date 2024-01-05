@@ -232,7 +232,7 @@ async function startAllSpammers () {
                     resolve(false)
                     return
                 }
-                SPAMMER_TARGET_COUNT = answerNumber
+                SPAMMER_TARGET_COUNT = answerNumber * (proxyMap.proxies.length || 1)
                 resolve(true)
             })
         })) break
