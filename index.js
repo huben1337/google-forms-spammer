@@ -1,4 +1,4 @@
-const { USE_PROXIES, formUrl } = require('./config')
+const { USE_PROXIES, FORM_URL } = require('./config')
 
 const { ProxyAgent, fetch } = require('undici')
 
@@ -19,7 +19,8 @@ const { generateResponseBody } = require('./generateResponse')
 const formInfo = {
     responseParts: null,
     pageHistory: undefined,
-    formId: undefined
+    formId: undefined,
+    type: undefined
 }
 
 const spammers = new Set()
@@ -117,8 +118,8 @@ class Spammer {
 
     async submitAnswer () {
         try {
-            const body = generateResponseBody(formInfo.responseParts, formInfo.pageHistory)
-            const res = await fetch(`https://docs.google.com/forms/d/${formInfo.formId}/formResponse`, { // https://docs.google.com/forms/d/e/1FAIpQLSfIOvAXhZQelFPcvlk2Tp5y-1mEkaHporDmsNZEmRVWBJrvEA/formResponse
+            const body = generateResponseBody[formInfo.type](formInfo.responseParts, formInfo.pageHistory)
+            const res = await fetch(`https://docs.google.com/forms/d/${formInfo.formId}/formResponse`, {
                 credentials: 'include',
                 headers: {
                     'User-Agent': userAgents[Math.floor(Math.random() * userAgents.length)].ua,
@@ -134,7 +135,7 @@ class Spammer {
                     Pragma: 'no-cache',
                     'Cache-Control': 'no-cache'
                 },
-                referrer: 'https://docs.google.com/forms/d/e/1FAIpQLScB1hO6SQ65trVIYkJGvParbI6QnMa6zaPzw6uDTQTB9cvK-w/formResponse', //  'https://docs.google.com/forms/d/e/1FAIpQLSfIOvAXhZQelFPcvlk2Tp5y-1mEkaHporDmsNZEmRVWBJrvEA/formResponse'
+                referrer: `https://docs.google.com/forms/d/${formInfo.formId}/formResponse`,
                 body,
                 method: 'POST',
                 mode: 'cors',
@@ -190,10 +191,11 @@ let SPAMMER_TARGET_COUNT = 0
 
 async function startAllSpammers () {
     console.log('Getting form info...')
-    const { responseParts, pageHistory, formId } = await getFormInfo(formUrl)
+    const { responseParts, pageHistory, formId, type } = await getFormInfo(FORM_URL)
     formInfo.responseParts = responseParts
     formInfo.pageHistory = pageHistory
     formInfo.formId = formId
+    formInfo.type = type
     console.log('Starting all spammers...')
     for (let i = 0; i < SPAMMER_TARGET_COUNT; i++) {
         startSpammer()

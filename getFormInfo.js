@@ -1,8 +1,7 @@
 const fs = require('fs')
 
 const formsCache = {}
-
-const { USE_CACHE } = require('./config')
+const { USE_CACHE, TEXTFIELD_MODE } = require('./config')
 
 async function saveCache (url, data) {
     if (!USE_CACHE) return
@@ -44,8 +43,23 @@ if (USE_CACHE) {
     }
 }
 
-const spewWords = () => {
-    return ''
+const spewWords = [
+    // empty
+    () => '',
+    // generate random string
+    () => {
+        const charSet = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789'
+        let string = ''
+        for (let i = 0; i < 10; i++) {
+            string += charSet[Math.floor(Math.random() * charSet.length)]
+        }
+        console.log(string)
+        return string
+    },
+    require('./randomSentence')
+][TEXTFIELD_MODE]
+if (!spewWords) {
+    throw new Error('Invalid TEXTFIELD_MODE')
 }
 
 function extractFormInfo (data) {
@@ -67,8 +81,8 @@ function extractFormInfo (data) {
                 encodedSelects.push(encodeURIComponent(select[0]).replace(/%20/g, '+').replace(/%3D/g, '=').replace(/%26/g, '&'))
             }
             const id = item[4][0][0]
-            const length = encodedSelects.length
-            responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${encodedSelects[Math.floor(Math.random() * length)]}%22%5D%2C0%5D`)
+            // responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${encodedSelects[Math.floor(Math.random() * encodedSelects.length)]}%22%5D%2C0%5D`)
+            responseParts.push([id, () => encodedSelects[Math.floor(Math.random() * encodedSelects.length)]])
             break
         }
 
@@ -80,13 +94,14 @@ function extractFormInfo (data) {
                 encodedSelects.push(encodeURIComponent(select[0]).replace(/%20/g, '+').replace(/%3D/g, '=').replace(/%26/g, '&'))
             }
             const id = item[4][0][0]
-            const length = encodedSelects.length
-            responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${encodedSelects[Math.floor(Math.random() * length)]}%22%5D%2C0%5D`)
+            // responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${encodedSelects[Math.floor(Math.random() * encodedSelects.length)]}%22%5D%2C0%5D`)
+            responseParts.push([id, () => encodedSelects[Math.floor(Math.random() * encodedSelects.length)]])
             break
         }
         case 1: {
             const id = item[4][0][0]
-            responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${spewWords()}%22%5D%2C0%5D`)
+            responseParts.push([id, spewWords])
+            // responseParts.push(() => `%5Bnull%2C${id}%2C%5B%22${spewWords()}%22%5D%2C0%5D`)
         }
         }
     }
@@ -98,7 +113,8 @@ function extractFormInfo (data) {
     return {
         responseParts,
         pageHistory,
-        formId: data[data.length - 5]
+        formId: data[data.length - 5],
+        type: pageCount === 0 ? 'single' : 'multi'
     }
 }
 
