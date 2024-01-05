@@ -119,10 +119,12 @@ function extractFormInfo (data) {
 }
 
 async function getFormInfo (url, forceFetch = false) {
+    console.log('Getting form info...')
     if (USE_CACHE && !forceFetch && formsCache[url]) {
         if (formsCache[url].ts < Date.now() - 1000 * 60 * 60) {
             delete formsCache[url]
         } else {
+            console.log('Getting from cache...')
             return extractFormInfo(formsCache[url].data)
         }
     }

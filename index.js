@@ -1,16 +1,14 @@
-const { USE_PROXIES, FORM_URL } = require('./config')
+const { USE_PROXIES, FORM_URL, SPAMMER_PER_IP, SPAMMER_PER_IP_DEFAULT, NO_CONFIG_PROMPT } = require('./config')
 
-const { ProxyAgent, fetch } = require('undici')
-
-const proxies = []
-
-if (USE_PROXIES) {
-    const fs = require('fs')
-    fs.readFileSync('./data/proxies.txt').toString().split(/\r?\n/).forEach(line => {
-        const [proxyAddress, port, username, password] = line.split(':')
-        proxies.push([proxyAddress, parseInt(port), username, password])
-    })
+if (!SPAMMER_PER_IP_DEFAULT || SPAMMER_PER_IP_DEFAULT < 1 || SPAMMER_PER_IP_DEFAULT > 100) {
+    throw new Error('SPAMMER_PER_IP_DEFAULT must be a number between 1 and 100')
 }
+
+const { fetch } = require('undici')
+
+const proxyMap = USE_PROXIES ? require('./proxyMap') : null
+
+const ipCount = (USE_PROXIES ? proxyMap.proxies.length : 1)
 
 const userAgents = require('./userAgents.json')
 const { getFormInfo } = require('./getFormInfo')
@@ -23,65 +21,16 @@ const formInfo = {
     type: undefined
 }
 
+const readline = require('readline').createInterface({
+    input: process.stdin,
+    output: process.stdout
+})
+
 const spammers = new Set()
-
-class ProxyWrapper extends ProxyAgent {
-    constructor (proxyAddress, port, username, password, proxyId) {
-        super({
-            uri: `http://${proxyAddress}:${port}`,
-            headers: {
-                'Proxy-Authorization': `Basic ${Buffer.from(`${username}:${password}`).toString('base64')}`
-            }
-        })
-        this.proxyAddress = proxyAddress
-        this.proxyId = proxyId
-    }
-
-    proxyId = 0
-    usedSlots = 0
-}
-
-const proxyMap = {
-    proxies: [],
-    promotedProxy: null,
-    leastUsedSlots: 0,
-    returnProxy (proxyId) {
-        const proxy = this.proxies[proxyId]
-        proxy.usedSlots--
-        if (proxy.usedSlots < this.leastUsedSlots) {
-            this.promotedProxy = proxy
-            this.leastUsedSlots = proxy.usedSlots
-        }
-    },
-    getProxy () {
-        const proxy = this.promotedProxy
-        proxy.usedSlots++
-        this.leastUsedSlots++
-        for (const proxy of this.proxies) {
-            if (proxy.usedSlots < this.leastUsedSlots) {
-                this.promotedProxy = proxy
-                this.leastUsedSlots = proxy.usedSlots
-            }
-        }
-        return proxy
-    },
-    init () {
-        let proxyId = 0
-        for (const [proxyAddress, port, username, password] of proxies) {
-            const proxy = new ProxyWrapper(proxyAddress, port, username, password, proxyId)
-            this.proxies.push(proxy)
-            proxyId++
-        }
-        this.promotedProxy = this.proxies[0]
-    }
-}
-if (USE_PROXIES) {
-    proxyMap.init()
-}
 
 let spammerCount = 0
 
-let logSeperator = false
+let logSeperator = true
 let answerCount = 0
 let secondlatestAnswerId = 0
 
@@ -103,8 +52,8 @@ class Spammer {
         this.submitAnswer()
         spammerCount++
         const spammerCountString = spammerCount.toString()
-        console.log('├───────────────────────────────────────────────────────┤\n│' + (' ').repeat(29 - spammerCountString.length) + 'Spammer started! Running: ' + spammerCountString + '│')
-        logSeperator = true
+        readline.write(`\x1b[0G│ Spammer started!${(' ').repeat(28 - spammerCountString.length)}Running: ${spammerCountString} │\n└───────────────────────────────────────────────────────┘`)
+        logSeperator = false
     }
 
     stop () {
@@ -112,8 +61,8 @@ class Spammer {
         this.disabled = false
         spammerCount--
         const spammerCountString = spammerCount.toString()
-        console.log('├───────────────────────────────────────────────────────┤\n│' + (' ').repeat(29 - spammerCountString.length) + 'Spammer stopped! Running: ' + spammerCountString + '│')
-        logSeperator = true
+        readline.write(`\x1b[0G│ Spammer stopped!${(' ').repeat(28 - spammerCountString.length)}Running: ${spammerCountString} │\n└───────────────────────────────────────────────────────┘`)
+        logSeperator = false
     }
 
     async submitAnswer () {
@@ -149,7 +98,7 @@ class Spammer {
                     return
                 }
             } else if (text.includes('nimmt keine Antworten mehr an', 25000)) {
-                restartAllSpammers()
+                restart()
                 return
             }
             if (this.noErrorCount > 5) {
@@ -159,8 +108,8 @@ class Spammer {
             setTimeout(() => { this.submitAnswer() }, 200 + Math.random() * 500)
         } catch (error) {
             this.errorCount++
-            console.log('├───────────────────────────────────────────────────────┤\n│                                        Error occured! │')
-            logSeperator = true
+            readline.write('\x1b[0G├───────────────────────────────────────────────────────┤\n│                                        Error occured! │\n└───────────────────────────────────────────────────────┘')
+            logSeperator = false
             if (this.errorCount > 5) {
                 this.stop()
                 return
@@ -177,71 +126,70 @@ function startSpammer () {
     spammers.add(spammer)
 }
 let statrtingSpammers = false
-function restartAllSpammers () {
+function restart () {
     statrtingSpammers = true
     console.log('Restarting all spammers...')
     for (const spammer of spammers.values()) {
         spammer.stop()
     }
     spammers.clear()
-    startAllSpammers()
+    start()
 }
 
-let SPAMMER_TARGET_COUNT = 0
+let formUrl = FORM_URL
+let spammerTargetCount = 0
 
-async function startAllSpammers () {
-    console.log('Getting form info...')
-    const { responseParts, pageHistory, formId, type } = await getFormInfo(FORM_URL)
+async function start () {
+    const { responseParts, pageHistory, formId, type } = await getFormInfo(formUrl)
     formInfo.responseParts = responseParts
     formInfo.pageHistory = pageHistory
     formInfo.formId = formId
     formInfo.type = type
     console.log('Starting all spammers...')
-    for (let i = 0; i < SPAMMER_TARGET_COUNT; i++) {
+    console.log('┌───────────────────────────────────────────────────────┐')
+    for (let i = 0; i < spammerTargetCount; i++) {
         startSpammer()
     }
     statrtingSpammers = false
 }
 
-(async () => {
-    const readline = require('readline').createInterface({
-        input: process.stdin,
-        output: process.stdout
-    })
-    while (true) {
-        if (await new Promise((resolve) => {
-            readline.question('Number of concurrent spammers per ip (default: 3): ', (answer) => {
+async function promptConfig () {
+    while (!formUrl) {
+        formUrl = await new Promise((resolve) => {
+            readline.question('Enter the form URL: ', resolve)
+        })
+    }
+    while (spammerTargetCount === 0) {
+        spammerTargetCount = await new Promise((resolve) => {
+            readline.question(`Number of concurrent spammers per ip (default: ${SPAMMER_PER_IP_DEFAULT}): `, (answer) => {
                 if (!answer) {
-                    SPAMMER_TARGET_COUNT = 3 * (proxyMap.proxies.length || 1)
-                    resolve(true)
+                    resolve(SPAMMER_PER_IP_DEFAULT * ipCount)
                     return
                 }
-                const answerNumber = parseInt(answer)
-                if (isNaN(answerNumber)) {
-                    console.log('Please enter a number!')
-                    resolve(false)
+                if (/^[1-9]{1,2}$/.test(answer)) {
+                    resolve(parseInt(answer) * ipCount)
                     return
                 }
-                if (answerNumber < 1) {
-                    console.log('Please enter a number greater than 0!')
-                    resolve(false)
-                    return
-                }
-                if (answerNumber > 100) {
-                    console.log('Please enter a number less than 100!')
-                    resolve(false)
-                    return
-                }
-                SPAMMER_TARGET_COUNT = answerNumber * (proxyMap.proxies.length || 1)
-                resolve(true)
+                console.log('Please enter a number between 1 and 100!')
+                resolve(0)
             })
-        })) break
+        })
     }
     readline.close()
+}
 
-    await startAllSpammers()
+(async () => {
+    if (NO_CONFIG_PROMPT) {
+        if (!FORM_URL || typeof FORM_URL !== 'string') throw new Error('FORM_URL must be a string')
+        if (!SPAMMER_PER_IP || SPAMMER_PER_IP < 1 || SPAMMER_PER_IP > 100) throw new Error('SPAMMER_PER_IP must be a number between 1 and 100')
+        spammerTargetCount = SPAMMER_PER_IP * ipCount
+    } else {
+        await promptConfig()
+    }
 
-    console.log('┌───────────────────────────┬───────────────────────────┐\n│ Δ Answers submitted delta │ Σ Answers submitted total │')
+    await start()
+
+    readline.write('\x1b[0G├───────────────────────────┬───────────────────────────┤\n│ Δ Answers submitted delta │ Σ Answers submitted total │\n')
     setInterval(() => {
         const answersDeltaString = (answerCount - secondlatestAnswerId).toString()
         secondlatestAnswerId = answerCount
@@ -249,13 +197,13 @@ async function startAllSpammers () {
         const answersTotalString = answerCount.toString()
         const answersTotalStringPadded = 'Σ' + (' ').repeat(24 - answersTotalString.length) + answersTotalString
         if (logSeperator) {
-            console.log('├───────────────────────────┬───────────────────────────┤')
+            readline.write('\x1b[0G├───────────────────────────┼───────────────────────────┤\n')
         } else {
-            console.log('├───────────────────────────┼───────────────────────────┤')
+            readline.write('\x1b[0G├───────────────────────────┬───────────────────────────┤\n')
         }
-        logSeperator = false
-        console.log(`│ ${answersDeltaStringPadded} │ ${answersTotalStringPadded} │`)
-        if (!statrtingSpammers && spammerCount < SPAMMER_TARGET_COUNT) {
+        logSeperator = true
+        readline.write(`│ ${answersDeltaStringPadded} │ ${answersTotalStringPadded} │\n└───────────────────────────┴───────────────────────────┘`)
+        if (!statrtingSpammers && spammerCount < spammerTargetCount) {
             startSpammer()
         }
     }, 500)
